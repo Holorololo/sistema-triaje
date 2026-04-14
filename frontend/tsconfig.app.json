@@ -1,0 +1,44 @@
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": [
+    "src/main.tsx",
+    "src/App.tsx",
+    "src/layouts/**/*.tsx",
+    "src/pages/**/*.tsx",
+    "src/lib/**/*.ts",
+    "src/types/**/*.ts",
+    "src/components/button.tsx",
+    "src/components/input.tsx",
+    "src/components/label.tsx",
+    "src/components/card.tsx",
+    "src/components/badge.tsx",
+    "src/components/table.tsx",
+    "src/components/dialog.tsx",
+    "src/components/select.tsx",
+    "src/components/sonner.tsx",
+    "src/components/utils.ts",
+    "src/components/ui/**/*.ts",
+    "src/components/ui/**/*.tsx"
+  ]
+}
