@@ -6,7 +6,7 @@ import Patients from './pages/Patients'
 import Reports from './pages/Reports'
 import Triage from './pages/Triage'
 import Users from './pages/Users'
-
+//.\mvnw.cmd spring-boot:run
 function App() {
   return (
     <>

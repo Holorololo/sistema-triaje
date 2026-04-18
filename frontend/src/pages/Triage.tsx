@@ -98,6 +98,18 @@ const priorityStyles: Record<string, PriorityAppearance> = {
   },
 }
 
+const vitalRanges = {
+  temperature: { min: 30, max: 45, label: 'La temperatura' },
+  systolicBP: { min: 50, max: 300, label: 'La presión sistólica' },
+  diastolicBP: { min: 30, max: 200, label: 'La presión diastólica' },
+  heartRate: { min: 20, max: 250, label: 'La frecuencia cardíaca' },
+  respiratoryRate: { min: 5, max: 80, label: 'La frecuencia respiratoria' },
+  oxygenSaturation: { min: 0, max: 100, label: 'La saturación de oxígeno' },
+  weight: { min: 0, max: 500, label: 'El peso' },
+  heightCm: { min: 30, max: 250, label: 'La talla' },
+  bloodGlucose: { min: 0, max: 1000, label: 'La glucemia' },
+} as const
+
 function normalizeText(value?: string | null) {
   return (value || '')
     .normalize('NFD')
@@ -207,6 +219,86 @@ function hasVitalSigns(form: TriageFormState) {
     form.height,
     form.bloodGlucose,
   ].some((value) => value.trim() !== '')
+}
+
+function validateFieldRange(
+  rawValue: string,
+  min: number,
+  max: number,
+  label: string,
+) {
+  const trimmed = rawValue.trim()
+  if (!trimmed) return null
+  const value = Number(trimmed)
+  if (Number.isNaN(value)) {
+    return `${label} debe ser un número válido`
+  }
+  if (value < min || value > max) {
+    return `${label} debe estar entre ${min} y ${max}`
+  }
+  return null
+}
+
+function validateVitalSigns(form: TriageFormState) {
+  const messages = [
+    validateFieldRange(
+      form.temperature,
+      vitalRanges.temperature.min,
+      vitalRanges.temperature.max,
+      vitalRanges.temperature.label,
+    ),
+    validateFieldRange(
+      form.systolicBP,
+      vitalRanges.systolicBP.min,
+      vitalRanges.systolicBP.max,
+      vitalRanges.systolicBP.label,
+    ),
+    validateFieldRange(
+      form.diastolicBP,
+      vitalRanges.diastolicBP.min,
+      vitalRanges.diastolicBP.max,
+      vitalRanges.diastolicBP.label,
+    ),
+    validateFieldRange(
+      form.heartRate,
+      vitalRanges.heartRate.min,
+      vitalRanges.heartRate.max,
+      vitalRanges.heartRate.label,
+    ),
+    validateFieldRange(
+      form.respiratoryRate,
+      vitalRanges.respiratoryRate.min,
+      vitalRanges.respiratoryRate.max,
+      vitalRanges.respiratoryRate.label,
+    ),
+    validateFieldRange(
+      form.oxygenSaturation,
+      vitalRanges.oxygenSaturation.min,
+      vitalRanges.oxygenSaturation.max,
+      vitalRanges.oxygenSaturation.label,
+    ),
+    validateFieldRange(form.weight, vitalRanges.weight.min, vitalRanges.weight.max, vitalRanges.weight.label),
+    validateFieldRange(
+      form.height,
+      vitalRanges.heightCm.min,
+      vitalRanges.heightCm.max,
+      `${vitalRanges.heightCm.label} en cm`,
+    ),
+    validateFieldRange(
+      form.bloodGlucose,
+      vitalRanges.bloodGlucose.min,
+      vitalRanges.bloodGlucose.max,
+      vitalRanges.bloodGlucose.label,
+    ),
+  ].filter((message): message is string => Boolean(message))
+
+  const systolic = parseInteger(form.systolicBP)
+  const diastolic = parseInteger(form.diastolicBP)
+  if (systolic != null && diastolic != null && systolic < diastolic) {
+    messages.push('La presión sistólica no puede ser menor que la diastólica')
+  }
+
+  return messages
 }
 
 function getPriorityAppearance(prioridad: NivelPrioridad) {
@@ -327,6 +419,12 @@ function Triage() {
 
     if (!triageData.classifiedById) {
       toast.error('Selecciona el usuario que clasifica el triaje.')
+      return
+    }
+
+    const vitalErrors = validateVitalSigns(triageData)
+    if (vitalErrors.length > 0) {
+      toast.error(vitalErrors[0])
       return
     }
 
@@ -643,6 +741,8 @@ function Triage() {
                         id="temperature"
                         type="number"
                         step="0.1"
+                        min={vitalRanges.temperature.min}
+                        max={vitalRanges.temperature.max}
                         value={triageData.temperature}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, temperature: e.target.value }))
@@ -655,6 +755,8 @@ function Triage() {
                       <Input
                         id="systolicBP"
                         type="number"
+                        min={vitalRanges.systolicBP.min}
+                        max={vitalRanges.systolicBP.max}
                         value={triageData.systolicBP}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, systolicBP: e.target.value }))
@@ -667,6 +769,8 @@ function Triage() {
                       <Input
                         id="diastolicBP"
                         type="number"
+                        min={vitalRanges.diastolicBP.min}
+                        max={vitalRanges.diastolicBP.max}
                         value={triageData.diastolicBP}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, diastolicBP: e.target.value }))
@@ -682,6 +786,8 @@ function Triage() {
                       <Input
                         id="heartRate"
                         type="number"
+                        min={vitalRanges.heartRate.min}
+                        max={vitalRanges.heartRate.max}
                         value={triageData.heartRate}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, heartRate: e.target.value }))
@@ -697,6 +803,8 @@ function Triage() {
                       <Input
                         id="respiratoryRate"
                         type="number"
+                        min={vitalRanges.respiratoryRate.min}
+                        max={vitalRanges.respiratoryRate.max}
                         value={triageData.respiratoryRate}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, respiratoryRate: e.target.value }))
@@ -713,6 +821,8 @@ function Triage() {
                         id="oxygenSaturation"
                         type="number"
                         step="0.1"
+                        min={vitalRanges.oxygenSaturation.min}
+                        max={vitalRanges.oxygenSaturation.max}
                         value={triageData.oxygenSaturation}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, oxygenSaturation: e.target.value }))
@@ -729,6 +839,8 @@ function Triage() {
                         id="weight"
                         type="number"
                         step="0.1"
+                        min={vitalRanges.weight.min}
+                        max={vitalRanges.weight.max}
                         value={triageData.weight}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, weight: e.target.value }))
@@ -744,6 +856,8 @@ function Triage() {
                       <Input
                         id="height"
                         type="number"
+                        min={vitalRanges.heightCm.min}
+                        max={vitalRanges.heightCm.max}
                         value={triageData.height}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, height: e.target.value }))
@@ -757,6 +871,8 @@ function Triage() {
                         id="bloodGlucose"
                         type="number"
                         step="0.1"
+                        min={vitalRanges.bloodGlucose.min}
+                        max={vitalRanges.bloodGlucose.max}
                         value={triageData.bloodGlucose}
                         onChange={(e) =>
                           setTriageData((prev) => ({ ...prev, bloodGlucose: e.target.value }))
