@@ -18,12 +18,14 @@ public class UsuarioService {
     private final UsuarioRepository usuarioRepository;
     private final RolRepository rolRepository;
     private final AuditoriaService auditoriaService;
+    private final PasswordService passwordService;
 
     public UsuarioService(UsuarioRepository usuarioRepository, RolRepository rolRepository,
-            AuditoriaService auditoriaService) {
+            AuditoriaService auditoriaService, PasswordService passwordService) {
         this.usuarioRepository = usuarioRepository;
         this.rolRepository = rolRepository;
         this.auditoriaService = auditoriaService;
+        this.passwordService = passwordService;
     }
 
     public List<Usuario> listarTodos() {
@@ -40,7 +42,18 @@ public class UsuarioService {
     }
 
     public Usuario crear(Usuario usuario) {
-        validarUsername(usuario.getUsername(), null);
+        String username = normalizeRequired(usuario.getUsername(), "El username es obligatorio");
+        String nombreCompleto = normalizeRequired(usuario.getNombreCompleto(), "El nombre completo es obligatorio");
+        String password = normalizeRequired(usuario.getPasswordHash(), "La contrasena es obligatoria");
+        String email = normalizeOptional(usuario.getEmail());
+
+        validarUsername(username, null);
+        validarEmail(email, null);
+
+        usuario.setUsername(username);
+        usuario.setNombreCompleto(nombreCompleto);
+        usuario.setEmail(email);
+        usuario.setPasswordHash(passwordService.encodeIfNeeded(password));
         usuario.setRol(obtenerRol(usuario.getRol()));
         if (usuario.getActivo() == null) {
             usuario.setActivo(true);
@@ -53,14 +66,20 @@ public class UsuarioService {
 
     public Usuario actualizar(Integer id, Usuario usuarioActualizado) {
         Usuario usuario = obtenerPorId(id);
-        validarUsername(usuarioActualizado.getUsername(), id);
+        String username = normalizeRequired(usuarioActualizado.getUsername(), "El username es obligatorio");
+        String nombreCompleto = normalizeRequired(usuarioActualizado.getNombreCompleto(),
+                "El nombre completo es obligatorio");
+        String email = normalizeOptional(usuarioActualizado.getEmail());
 
-        usuario.setUsername(usuarioActualizado.getUsername());
+        validarUsername(username, id);
+        validarEmail(email, id);
+
+        usuario.setUsername(username);
         if (usuarioActualizado.getPasswordHash() != null && !usuarioActualizado.getPasswordHash().isBlank()) {
-            usuario.setPasswordHash(usuarioActualizado.getPasswordHash());
+            usuario.setPasswordHash(passwordService.encodeIfNeeded(usuarioActualizado.getPasswordHash().trim()));
         }
-        usuario.setNombreCompleto(usuarioActualizado.getNombreCompleto());
-        usuario.setEmail(usuarioActualizado.getEmail());
+        usuario.setNombreCompleto(nombreCompleto);
+        usuario.setEmail(email);
         usuario.setRol(obtenerRol(usuarioActualizado.getRol()));
         usuario.setActivo(usuarioActualizado.getActivo() != null ? usuarioActualizado.getActivo() : usuario.getActivo());
         usuario.setActualizadoEn(LocalDateTime.now());
@@ -82,9 +101,21 @@ public class UsuarioService {
     }
 
     private void validarUsername(String username, Integer idActual) {
-        usuarioRepository.findByUsername(username).ifPresent(existente -> {
+        usuarioRepository.findByUsernameIgnoreCase(username).ifPresent(existente -> {
             if (idActual == null || !existente.getId().equals(idActual)) {
                 throw new BadRequestException("Ya existe un usuario con ese username");
+            }
+        });
+    }
+
+    private void validarEmail(String email, Integer idActual) {
+        if (email == null) {
+            return;
+        }
+
+        usuarioRepository.findByEmailIgnoreCase(email).ifPresent(existente -> {
+            if (idActual == null || !existente.getId().equals(idActual)) {
+                throw new BadRequestException("Ya existe un usuario con ese correo");
             }
         });
     }
@@ -95,5 +126,19 @@ public class UsuarioService {
         }
         return rolRepository.findById(rol.getId())
                 .orElseThrow(() -> new BadRequestException("El rol indicado no existe"));
+    }
+
+    private String normalizeRequired(String value, String message) {
+        if (value == null || value.isBlank()) {
+            throw new BadRequestException(message);
+        }
+        return value.trim();
+    }
+
+    private String normalizeOptional(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }

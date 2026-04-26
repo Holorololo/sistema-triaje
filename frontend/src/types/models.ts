@@ -40,6 +40,11 @@ export interface Usuario {
   actualizadoEn?: string | null
 }
 
+export interface AuthResponse {
+  token: string
+  usuario: Usuario
+}
+
 export interface Paciente {
   id: number
   nombres: string

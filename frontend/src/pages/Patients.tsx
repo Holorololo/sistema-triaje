@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import type { AxiosError } from 'axios'
 import { Edit, Plus, Search, UserPlus, Users } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuth } from '../auth/AuthProvider'
 import { api } from '../lib/api'
-import { DEFAULT_USUARIO_REGISTRO_ID } from '../lib/config'
 import type {
   EstadoCaso,
   Ingreso,
@@ -12,7 +12,6 @@ import type {
   PacientePayload,
   Sexo,
   TipoIngreso,
-  Usuario,
 } from '../types/models'
 import { Button } from '../components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
@@ -51,7 +50,6 @@ type AdmissionFormState = {
   motivoConsulta: string
   tipoIngresoId: string
   estadoActualId: string
-  usuarioRegistroId: string
   observacionesRecepcion: string
 }
 
@@ -76,7 +74,6 @@ const emptyAdmissionForm: AdmissionFormState = {
   motivoConsulta: '',
   tipoIngresoId: '',
   estadoActualId: '',
-  usuarioRegistroId: '',
   observacionesRecepcion: '',
 }
 
@@ -95,12 +92,12 @@ function formatDate(value?: string | null) {
 }
 
 function Patients() {
+  const { user } = useAuth()
   const [patients, setPatients] = useState<Paciente[]>([])
   const [ingresos, setIngresos] = useState<Ingreso[]>([])
   const [sexos, setSexos] = useState<Sexo[]>([])
   const [tiposIngreso, setTiposIngreso] = useState<TipoIngreso[]>([])
   const [estadosCaso, setEstadosCaso] = useState<EstadoCaso[]>([])
-  const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [patientDialogOpen, setPatientDialogOpen] = useState(false)
   const [admissionDialogOpen, setAdmissionDialogOpen] = useState(false)
@@ -141,13 +138,12 @@ function Patients() {
     setError(null)
 
     try {
-      const [patientsRes, sexosRes, tiposRes, estadosRes, ingresosRes, usuariosRes] = await Promise.all([
+      const [patientsRes, sexosRes, tiposRes, estadosRes, ingresosRes] = await Promise.all([
         api.get<Paciente[]>('/api/pacientes'),
         api.get<Sexo[]>('/api/catalogos/sexos'),
         api.get<TipoIngreso[]>('/api/catalogos/tipos-ingreso'),
         api.get<EstadoCaso[]>('/api/catalogos/estados-caso'),
         api.get<Ingreso[]>('/api/ingresos'),
-        api.get<Usuario[]>('/api/usuarios'),
       ])
 
       setPatients(patientsRes.data)
@@ -155,7 +151,6 @@ function Patients() {
       setTiposIngreso(tiposRes.data)
       setEstadosCaso(estadosRes.data)
       setIngresos(ingresosRes.data)
-      setUsuarios(usuariosRes.data)
     } catch (err) {
       setError('No se pudieron cargar los datos del módulo de pacientes.')
       toast.error(getApiErrorMessage(err, 'Error al cargar pacientes y catálogos'))
@@ -193,14 +188,11 @@ function Patients() {
 
   function openAdmissionDialog(patient: Paciente) {
     const defaultEstado = estadosCaso[0]
-    const preferredUsuario =
-      usuarios.find((usuario) => usuario.id === DEFAULT_USUARIO_REGISTRO_ID) || usuarios[0]
 
     setSelectedPatient(patient)
     setAdmissionForm({
       ...emptyAdmissionForm,
       estadoActualId: defaultEstado ? String(defaultEstado.id) : '',
-      usuarioRegistroId: preferredUsuario ? String(preferredUsuario.id) : '',
     })
     setAdmissionDialogOpen(true)
   }
@@ -245,8 +237,13 @@ function Patients() {
 
   async function handleSaveAdmission() {
     if (!selectedPatient) return
-    if (!admissionForm.motivoConsulta || !admissionForm.estadoActualId || !admissionForm.usuarioRegistroId) {
-      toast.error('Completa motivo de consulta, estado inicial y usuario de registro.')
+    if (!user?.id) {
+      toast.error('No se pudo identificar la sesion actual.')
+      return
+    }
+
+    if (!admissionForm.motivoConsulta || !admissionForm.estadoActualId) {
+      toast.error('Completa motivo de consulta y estado inicial.')
       return
     }
 
@@ -257,7 +254,7 @@ function Patients() {
         ? { id: Number(admissionForm.tipoIngresoId) }
         : null,
       estadoActual: { id: Number(admissionForm.estadoActualId) },
-      usuarioRegistro: { id: Number(admissionForm.usuarioRegistroId) },
+      usuarioRegistro: { id: user.id },
       observacionesRecepcion: admissionForm.observacionesRecepcion || null,
     }
 
@@ -555,28 +552,9 @@ function Patients() {
             </div>
             <div className="space-y-2">
               <Label>Usuario de registro</Label>
-              <Select
-                value={admissionForm.usuarioRegistroId}
-                onValueChange={(value) =>
-                  setAdmissionForm((prev) => ({ ...prev, usuarioRegistroId: value }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecciona el usuario" />
-                </SelectTrigger>
-                <SelectContent>
-                  {usuarios.map((usuario) => (
-                    <SelectItem key={usuario.id} value={String(usuario.id)}>
-                      {usuario.nombreCompleto} ({usuario.username})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {usuarios.length === 0 && (
-                <p className="text-sm text-destructive">
-                  No hay usuarios cargados en el backend. Debes crear al menos uno para registrar ingresos.
-                </p>
-              )}
+              <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+                {user?.nombreCompleto || user?.username || 'Sesion no disponible'}
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="observacionesRecepcion">Observaciones de recepción</Label>
@@ -599,7 +577,7 @@ function Patients() {
             >
               Cancelar
             </Button>
-            <Button onClick={handleSaveAdmission} disabled={savingAdmission || usuarios.length === 0}>
+            <Button onClick={handleSaveAdmission} disabled={savingAdmission || !user?.id}>
               {savingAdmission ? 'Registrando...' : 'Registrar ingreso'}
             </Button>
           </div>

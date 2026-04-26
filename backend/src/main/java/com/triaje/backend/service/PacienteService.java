@@ -85,7 +85,7 @@ public class PacienteService {
             return null;
         }
 
-        return sexoRepository.findById(sexo.gwetId())
+        return sexoRepository.findById(sexo.getId())
                 .orElseThrow(() -> new BadRequestException("El sexo indicado no existe"));
     }
 }

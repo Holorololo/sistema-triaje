@@ -12,6 +12,7 @@ import {
   Wind,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuth } from '../auth/AuthProvider'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -26,8 +27,7 @@ import {
 } from '../components/ui/select'
 import { Switch } from '../components/ui/switch'
 import { api } from '../lib/api'
-import { DEFAULT_USUARIO_REGISTRO_ID } from '../lib/config'
-import type { EstadoCaso, Ingreso, NivelPrioridad, TriajeRecord, Usuario } from '../types/models'
+import type { EstadoCaso, Ingreso, NivelPrioridad, TriajeRecord } from '../types/models'
 
 type ApiErrorBody = {
   status?: number
@@ -55,7 +55,6 @@ type TriageFormState = {
   bloodGlucose: string
   priorityId: string
   statusId: string
-  classifiedById: string
 }
 
 type PriorityAppearance = {
@@ -161,7 +160,7 @@ function getPreferredTriageStateId(estados: EstadoCaso[]) {
   return preferred ? String(preferred.id) : estados[0] ? String(estados[0].id) : ''
 }
 
-function buildEmptyForm(defaultStatusId = '', defaultUserId = ''): TriageFormState {
+function buildEmptyForm(defaultStatusId = ''): TriageFormState {
   return {
     symptoms: '',
     observations: '',
@@ -183,7 +182,6 @@ function buildEmptyForm(defaultStatusId = '', defaultUserId = ''): TriageFormSta
     bloodGlucose: '',
     priorityId: '',
     statusId: defaultStatusId,
-    classifiedById: defaultUserId,
   }
 }
 
@@ -311,11 +309,11 @@ function getPriorityAppearance(prioridad: NivelPrioridad) {
 }
 
 function Triage() {
+  const { user } = useAuth()
   const [ingresos, setIngresos] = useState<Ingreso[]>([])
   const [triajes, setTriajes] = useState<TriajeRecord[]>([])
   const [prioridades, setPrioridades] = useState<NivelPrioridad[]>([])
   const [estadosCaso, setEstadosCaso] = useState<EstadoCaso[]>([])
-  const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [selectedIngresoId, setSelectedIngresoId] = useState<number | null>(null)
   const [triageData, setTriageData] = useState<TriageFormState>(buildEmptyForm())
   const [loading, setLoading] = useState(true)
@@ -339,11 +337,6 @@ function Triage() {
     [pendingIngresos, selectedIngresoId],
   )
 
-  const preferredUser = useMemo(
-    () => usuarios.find((usuario) => usuario.id === DEFAULT_USUARIO_REGISTRO_ID) || usuarios[0] || null,
-    [usuarios],
-  )
-
   const preferredStatusId = useMemo(() => getPreferredTriageStateId(estadosCaso), [estadosCaso])
 
   const selectedPriority = useMemo(
@@ -356,19 +349,17 @@ function Triage() {
     setError(null)
 
     try {
-      const [ingresosRes, triajesRes, prioridadesRes, estadosRes, usuariosRes] = await Promise.all([
+      const [ingresosRes, triajesRes, prioridadesRes, estadosRes] = await Promise.all([
         api.get<Ingreso[]>('/api/ingresos'),
         api.get<TriajeRecord[]>('/api/triajes'),
         api.get<NivelPrioridad[]>('/api/catalogos/niveles-prioridad'),
         api.get<EstadoCaso[]>('/api/catalogos/estados-caso'),
-        api.get<Usuario[]>('/api/usuarios'),
       ])
 
       setIngresos(ingresosRes.data)
       setTriajes(triajesRes.data)
       setPrioridades(prioridadesRes.data.sort((a, b) => a.nivel - b.nivel))
       setEstadosCaso(estadosRes.data)
-      setUsuarios(usuariosRes.data)
     } catch (err) {
       setError('No se pudieron cargar los ingresos pendientes ni los catálogos de triaje.')
       toast.error(getApiErrorMessage(err, 'Error al cargar el módulo de triaje'))
@@ -398,12 +389,17 @@ function Triage() {
 
   useEffect(() => {
     if (!selectedIngreso) return
-    setTriageData(buildEmptyForm(preferredStatusId, preferredUser ? String(preferredUser.id) : ''))
-  }, [selectedIngreso?.id, preferredStatusId, preferredUser?.id])
+    setTriageData(buildEmptyForm(preferredStatusId))
+  }, [selectedIngreso?.id, preferredStatusId])
 
   async function handleSaveTriage() {
     if (!selectedIngreso) {
       toast.error('Selecciona un ingreso pendiente para registrar el triaje.')
+      return
+    }
+
+    if (!user?.id) {
+      toast.error('No se pudo identificar la sesion actual.')
       return
     }
 
@@ -414,11 +410,6 @@ function Triage() {
 
     if (!triageData.statusId) {
       toast.error('Selecciona el estado del paciente.')
-      return
-    }
-
-    if (!triageData.classifiedById) {
-      toast.error('Selecciona el usuario que clasifica el triaje.')
       return
     }
 
@@ -444,7 +435,7 @@ function Triage() {
         sangradoActivo: triageData.hasActiveBleeding,
         fiebre: triageData.hasFever,
         nivelDolor: parseInteger(triageData.painLevel) ?? 0,
-        clasificadoPor: { id: Number(triageData.classifiedById) },
+        clasificadoPor: { id: user.id },
       }
 
       const triajeRes = await api.post<TriajeRecord>('/api/triajes', triajePayload)
@@ -955,28 +946,9 @@ function Triage() {
                     </div>
                     <div className="space-y-2">
                       <Label>Clasificado por</Label>
-                      <Select
-                        value={triageData.classifiedById || undefined}
-                        onValueChange={(value) =>
-                          setTriageData((prev) => ({ ...prev, classifiedById: value }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecciona el usuario" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {usuarios.map((usuario) => (
-                            <SelectItem key={usuario.id} value={String(usuario.id)}>
-                              {usuario.nombreCompleto} ({usuario.username})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      {usuarios.length === 0 && (
-                        <p className="text-sm text-destructive">
-                          No hay usuarios cargados en el backend para clasificar triajes.
-                        </p>
-                      )}
+                      <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+                        {user?.nombreCompleto || user?.username || 'Sesion no disponible'}
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -991,7 +963,7 @@ function Triage() {
                 <Button
                   onClick={handleSaveTriage}
                   size="lg"
-                  disabled={saving || usuarios.length === 0}
+                  disabled={saving || !user?.id}
                   className="h-14 bg-primary px-8 text-lg shadow-lg hover:bg-primary/90"
                 >
                   <Activity className="mr-2 h-5 w-5" />

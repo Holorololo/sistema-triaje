@@ -3,6 +3,7 @@ import type { AxiosError } from 'axios'
 import { AnimatePresence, motion } from 'motion/react'
 import { Activity, Filter, Heart, Stethoscope, Thermometer } from 'lucide-react'
 import { toast } from 'sonner'
+import { useAuth } from '../auth/AuthProvider'
 import { Badge } from '../components/ui/badge'
 import { Button } from '../components/ui/button'
 import { Card } from '../components/ui/card'
@@ -21,7 +22,6 @@ import type {
   EstadoCaso,
   SignoVitalRecord,
   TriajeRecord,
-  Usuario,
 } from '../types/models'
 
 type ApiErrorBody = {
@@ -34,7 +34,6 @@ type ConsultationFormState = {
   treatment: string
   observations: string
   resultingStatusId: string
-  medicoId: string
 }
 
 type PriorityAppearance = {
@@ -108,7 +107,7 @@ function calculateAge(dateOfBirth?: string | null) {
     age -= 1
   }
 
-  return `${age} años`
+  return `${age} anos`
 }
 
 function formatTime(value?: string | null) {
@@ -151,13 +150,6 @@ function getPriorityBadge(caseItem: MedicalCase) {
   )
 }
 
-function getPreferredMedicos(usuarios: Usuario[]) {
-  const medicos = usuarios.filter((usuario) => normalizeText(usuario.rol?.nombre).includes('MED'))
-  if (medicos.length > 0) return medicos
-  const activos = usuarios.filter((usuario) => usuario.activo !== false)
-  return activos.length > 0 ? activos : usuarios
-}
-
 function getDefaultStatusId(estados: EstadoCaso[]) {
   const alta = estados.find((estado) => normalizeText(estado.codigo) === 'ALTA')
   if (alta) return String(alta.id)
@@ -168,11 +160,12 @@ function getDefaultStatusId(estados: EstadoCaso[]) {
   return estados[0] ? String(estados[0].id) : ''
 }
 
-function buildForm(
-  caseItem: MedicalCase | null,
-  estadosCaso: EstadoCaso[],
-  medicos: Usuario[],
-): ConsultationFormState {
+function isClosedCaseStatus(code?: string | null) {
+  const normalizedCode = normalizeText(code)
+  return normalizedCode === 'ALTA' || normalizedCode === 'CERRADO'
+}
+
+function buildForm(caseItem: MedicalCase | null, estadosCaso: EstadoCaso[]): ConsultationFormState {
   const latestAttention = caseItem?.latestAttention
   return {
     diagnosis: latestAttention?.diagnosticoPresuntivo || '',
@@ -181,20 +174,15 @@ function buildForm(
     resultingStatusId: latestAttention?.estadoResultante?.id
       ? String(latestAttention.estadoResultante.id)
       : getDefaultStatusId(estadosCaso),
-    medicoId: latestAttention?.medico?.id
-      ? String(latestAttention.medico.id)
-      : medicos[0]
-        ? String(medicos[0].id)
-        : '',
   }
 }
 
 function MedicalConsultation() {
+  const { user } = useAuth()
   const [triajes, setTriajes] = useState<TriajeRecord[]>([])
   const [signosVitales, setSignosVitales] = useState<SignoVitalRecord[]>([])
   const [atenciones, setAtenciones] = useState<AtencionMedicaRecord[]>([])
   const [estadosCaso, setEstadosCaso] = useState<EstadoCaso[]>([])
-  const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [filterPriority, setFilterPriority] = useState('all')
   const [filterStatus, setFilterStatus] = useState('all')
   const [selectedIngresoId, setSelectedIngresoId] = useState<number | null>(null)
@@ -203,13 +191,10 @@ function MedicalConsultation() {
     treatment: '',
     observations: '',
     resultingStatusId: '',
-    medicoId: '',
   })
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  const medicos = useMemo(() => getPreferredMedicos(usuarios), [usuarios])
 
   const medicalCases = useMemo(() => {
     const signosByTriage = new Map<number, SignoVitalRecord>()
@@ -241,15 +226,21 @@ function MedicalConsultation() {
       }))
   }, [triajes, signosVitales, atenciones])
 
+  const queuedCases = useMemo(
+    () =>
+      medicalCases.filter((caseItem) => !isClosedCaseStatus(caseItem.triaje.ingreso.estadoActual?.codigo)),
+    [medicalCases],
+  )
+
   const filteredCases = useMemo(() => {
-    return medicalCases.filter((caseItem) => {
+    return queuedCases.filter((caseItem) => {
       const matchesPriority =
         filterPriority === 'all' || String(caseItem.triaje.prioridad?.id) === filterPriority
       const matchesStatus =
         filterStatus === 'all' || String(caseItem.triaje.ingreso.estadoActual?.id) === filterStatus
       return matchesPriority && matchesStatus
     })
-  }, [medicalCases, filterPriority, filterStatus])
+  }, [queuedCases, filterPriority, filterStatus])
 
   const selectedCase = useMemo(
     () => filteredCases.find((caseItem) => caseItem.ingresoId === selectedIngresoId) || filteredCases[0] || null,
@@ -261,22 +252,20 @@ function MedicalConsultation() {
     setError(null)
 
     try {
-      const [triajesRes, signosRes, atencionesRes, estadosRes, usuariosRes] = await Promise.all([
+      const [triajesRes, signosRes, atencionesRes, estadosRes] = await Promise.all([
         api.get<TriajeRecord[]>('/api/triajes'),
         api.get<SignoVitalRecord[]>('/api/signos-vitales'),
         api.get<AtencionMedicaRecord[]>('/api/atenciones-medicas'),
         api.get<EstadoCaso[]>('/api/catalogos/estados-caso'),
-        api.get<Usuario[]>('/api/usuarios'),
       ])
 
       setTriajes(triajesRes.data)
       setSignosVitales(signosRes.data)
       setAtenciones(atencionesRes.data)
       setEstadosCaso(estadosRes.data)
-      setUsuarios(usuariosRes.data)
     } catch (err) {
-      setError('No se pudieron cargar los casos clínicos para consulta médica.')
-      toast.error(getApiErrorMessage(err, 'Error al cargar el módulo médico'))
+      setError('No se pudieron cargar los casos clinicos para consulta medica.')
+      toast.error(getApiErrorMessage(err, 'Error al cargar el modulo medico'))
       console.error(err)
     } finally {
       setLoading(false)
@@ -302,28 +291,39 @@ function MedicalConsultation() {
   }, [filteredCases, selectedIngresoId])
 
   useEffect(() => {
-    setConsultationData(buildForm(selectedCase, estadosCaso, medicos))
-  }, [selectedCase?.ingresoId, selectedCase?.latestAttention?.id, estadosCaso, medicos])
+    setConsultationData(buildForm(selectedCase, estadosCaso))
+  }, [selectedCase?.ingresoId, selectedCase?.latestAttention?.id, estadosCaso])
 
   async function handleSaveConsultation() {
     if (!selectedCase) {
-      toast.error('Selecciona un paciente para registrar la atención médica.')
+      toast.error('Selecciona un paciente para registrar la atencion medica.')
+      return
+    }
+
+    if (!user?.id) {
+      toast.error('No se pudo identificar la sesion actual.')
       return
     }
 
     if (!consultationData.diagnosis.trim() || !consultationData.treatment.trim()) {
-      toast.error('Por favor completa el diagnóstico y el tratamiento.')
+      toast.error('Por favor completa el diagnostico y el tratamiento.')
       return
     }
 
-    if (!consultationData.medicoId) {
-      toast.error('Selecciona el médico responsable.')
+    if (!consultationData.resultingStatusId) {
+      toast.error('Selecciona el estado final del paciente.')
       return
     }
+
+    const currentCaseIndex = filteredCases.findIndex((caseItem) => caseItem.ingresoId === selectedCase.ingresoId)
+    const nextCase =
+      currentCaseIndex >= 0
+        ? filteredCases[currentCaseIndex + 1] || filteredCases[currentCaseIndex - 1] || null
+        : null
 
     const payload: AtencionMedicaPayload = {
       ingreso: { id: selectedCase.triaje.ingreso.id },
-      medico: { id: Number(consultationData.medicoId) },
+      medico: { id: user.id },
       diagnosticoPresuntivo: consultationData.diagnosis.trim(),
       conductaMedica: consultationData.treatment.trim(),
       observaciones: consultationData.observations.trim() || null,
@@ -336,15 +336,16 @@ function MedicalConsultation() {
     try {
       if (selectedCase.latestAttention) {
         await api.put(`/api/atenciones-medicas/${selectedCase.latestAttention.id}`, payload)
-        toast.success('Atención médica actualizada correctamente')
+        toast.success('Atencion medica actualizada correctamente')
       } else {
         await api.post('/api/atenciones-medicas', payload)
-        toast.success('Atención médica registrada correctamente')
+        toast.success('Atencion medica registrada correctamente')
       }
 
+      setSelectedIngresoId(nextCase?.ingresoId ?? null)
       await loadData()
     } catch (err) {
-      toast.error(getApiErrorMessage(err, 'No se pudo guardar la atención médica'))
+      toast.error(getApiErrorMessage(err, 'No se pudo guardar la atencion medica'))
       console.error(err)
     } finally {
       setSaving(false)
@@ -355,7 +356,7 @@ function MedicalConsultation() {
     return (
       <div className="p-8">
         <Card className="p-8 text-sm text-muted-foreground shadow-lg">
-          Cargando triajes, signos vitales y atención médica...
+          Cargando triajes, signos vitales y atencion medica...
         </Card>
       </div>
     )
@@ -369,7 +370,7 @@ function MedicalConsultation() {
         className="flex w-96 shrink-0 flex-col overflow-y-auto border-r border-border bg-muted/30"
       >
         <div className="sticky top-0 z-10 border-b border-border bg-card p-4">
-          <h3 className="mb-3 text-lg font-semibold">Pacientes en atención</h3>
+          <h3 className="mb-3 text-lg font-semibold">Pacientes en cola medica</h3>
 
           <div className="space-y-2">
             <div className="flex items-center gap-2">
@@ -385,7 +386,7 @@ function MedicalConsultation() {
                   <SelectItem value="all">Todas</SelectItem>
                   {Array.from(
                     new Map(
-                      medicalCases.map((caseItem) => [
+                      queuedCases.map((caseItem) => [
                         caseItem.triaje.prioridad.id,
                         caseItem.triaje.prioridad,
                       ]),
@@ -406,7 +407,7 @@ function MedicalConsultation() {
                   <SelectItem value="all">Todos</SelectItem>
                   {Array.from(
                     new Map(
-                      medicalCases.map((caseItem) => [
+                      queuedCases.map((caseItem) => [
                         caseItem.triaje.ingreso.estadoActual.id,
                         caseItem.triaje.ingreso.estadoActual,
                       ]),
@@ -480,7 +481,7 @@ function MedicalConsultation() {
         <div className="mx-auto max-w-5xl space-y-6 p-8">
           {!selectedCase ? (
             <Card className="p-8 text-sm text-muted-foreground shadow-lg">
-              No hay pacientes listos para consulta médica.
+              No hay pacientes en cola para consulta medica.
             </Card>
           ) : (
             <>
@@ -545,8 +546,8 @@ function MedicalConsultation() {
                   </h3>
                   <div className="space-y-3">
                     <div>
-                      <p className="mb-1 text-sm font-medium text-muted-foreground">Síntomas</p>
-                      <p>{selectedCase.triaje.sintomas || 'Sin síntomas registrados'}</p>
+                      <p className="mb-1 text-sm font-medium text-muted-foreground">Sintomas</p>
+                      <p>{selectedCase.triaje.sintomas || 'Sin sintomas registrados'}</p>
                     </div>
                     <div>
                       <p className="mb-1 text-sm font-medium text-muted-foreground">Observaciones</p>
@@ -577,11 +578,11 @@ function MedicalConsultation() {
                         <p className="text-sm font-medium text-muted-foreground">Temperatura</p>
                       </div>
                       <p className="text-2xl font-bold">
-                        {formatValue(selectedCase.signosVitales?.temperatura, '°C')}
+                        {formatValue(selectedCase.signosVitales?.temperatura, ' C')}
                       </p>
                     </div>
                     <div className="rounded-lg bg-muted/50 p-4">
-                      <p className="mb-2 text-sm font-medium text-muted-foreground">Presión arterial</p>
+                      <p className="mb-2 text-sm font-medium text-muted-foreground">Presion arterial</p>
                       <p className="text-2xl font-bold">
                         {selectedCase.signosVitales?.presionSistolica || 'N/D'}/
                         {selectedCase.signosVitales?.presionDiastolica || 'N/D'}
@@ -597,7 +598,7 @@ function MedicalConsultation() {
                       </p>
                     </div>
                     <div className="rounded-lg bg-muted/50 p-4">
-                      <p className="mb-2 text-sm font-medium text-muted-foreground">Sat. O₂</p>
+                      <p className="mb-2 text-sm font-medium text-muted-foreground">Sat. O2</p>
                       <p className="text-2xl font-bold">
                         {formatValue(selectedCase.signosVitales?.saturacionOxigeno, '%')}
                       </p>
@@ -636,58 +637,44 @@ function MedicalConsultation() {
                 <Card className="border-2 border-primary/20 p-6 shadow-lg">
                   <h3 className="mb-4 flex items-center gap-2 text-xl font-semibold">
                     <Stethoscope className="h-5 w-5 text-primary" />
-                    Atención médica
+                    Atencion medica
                   </h3>
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label htmlFor="medicoId">Médico responsable</Label>
-                      <Select
-                        value={consultationData.medicoId || undefined}
-                        onValueChange={(value) =>
-                          setConsultationData((prev) => ({ ...prev, medicoId: value }))
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecciona el médico" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {medicos.map((medico) => (
-                            <SelectItem key={medico.id} value={String(medico.id)}>
-                              {medico.nombreCompleto} ({medico.username})
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <Label>Medico responsable</Label>
+                      <div className="rounded-md border border-input bg-muted/40 px-3 py-2 text-sm">
+                        {user?.nombreCompleto || user?.username || 'Sesion no disponible'}
+                      </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="diagnosis">Diagnóstico presuntivo *</Label>
+                      <Label htmlFor="diagnosis">Diagnostico presuntivo *</Label>
                       <textarea
                         id="diagnosis"
                         value={consultationData.diagnosis}
                         onChange={(e) =>
                           setConsultationData((prev) => ({ ...prev, diagnosis: e.target.value }))
                         }
-                        placeholder="Diagnóstico médico basado en la evaluación clínica..."
+                        placeholder="Diagnostico medico basado en la evaluacion clinica..."
                         className="min-h-[100px] w-full resize-none rounded-md border border-input bg-input-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="treatment">Conducta médica / tratamiento *</Label>
+                      <Label htmlFor="treatment">Conducta medica / tratamiento *</Label>
                       <textarea
                         id="treatment"
                         value={consultationData.treatment}
                         onChange={(e) =>
                           setConsultationData((prev) => ({ ...prev, treatment: e.target.value }))
                         }
-                        placeholder="Medicación, procedimientos, indicaciones al paciente..."
+                        placeholder="Medicacion, procedimientos, indicaciones al paciente..."
                         className="min-h-[120px] w-full resize-none rounded-md border border-input bg-input-background px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="medicalObservations">Observaciones médicas</Label>
+                      <Label htmlFor="medicalObservations">Observaciones medicas</Label>
                       <textarea
                         id="medicalObservations"
                         value={consultationData.observations}
@@ -732,11 +719,11 @@ function MedicalConsultation() {
                 <Button
                   onClick={handleSaveConsultation}
                   size="lg"
-                  disabled={saving || medicos.length === 0}
+                  disabled={saving || !user?.id}
                   className="h-14 bg-primary px-8 text-lg shadow-lg hover:bg-primary/90"
                 >
                   <Stethoscope className="mr-2 h-5 w-5" />
-                  {saving ? 'Guardando atención...' : 'Guardar atención médica'}
+                  {saving ? 'Guardando y avanzando...' : 'Guardar y pasar al siguiente'}
                 </Button>
               </motion.div>
             </>
